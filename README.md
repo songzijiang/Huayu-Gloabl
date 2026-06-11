@@ -8,11 +8,7 @@ Sensor-specific Huayu models retrieve precipitation over the Americas,
 Europe-Africa, and Asia-Pacific sectors, and the regional estimates are
 reprojected and blended into a common quasi-global product.
 
-This repository provides the inference and mosaicking entry point associated
-with the manuscript:
-
-> *Huayu-Global narrows the latency-accuracy gap in quasi-global precipitation
-> monitoring*
+This repository provides the Huayu-Global inference and mosaicking pipeline.
 
 ## Highlights
 
@@ -44,11 +40,11 @@ For each inference timestamp, `HuayuGlobal.py`:
    precipitation values below `0.1 mm`.
 6. Writes the precipitation field and coverage count as GeoTIFF files.
 
-## Reported Validation
+## Evaluation Summary
 
-The manuscript evaluates Huayu-Global against seven satellite precipitation
-products using `5,395` independent stations and `1,847,967` matched 3-hour
-records from July-December 2022 and January-June 2025.
+Huayu-Global was evaluated against seven satellite precipitation products
+using `5,395` independent stations and `1,847,967` matched 3-hour records from
+July-December 2022 and January-June 2025.
 
 | Metric | Huayu-Global | Reported result |
 | --- | ---: | --- |
@@ -58,9 +54,9 @@ records from July-December 2022 and January-June 2025.
 | Correlation coefficient (CC) | 0.605 | Close to IMERG Final Run (0.613) |
 | RMSE | **1.961 mm** | Lowest among evaluated products |
 
-These values are results reported by the manuscript, not a benchmark executed
-by this repository. The station validation datasets and the complete
-training/evaluation pipeline are not included in this code release.
+These values summarize the independent evaluation and are not produced by the
+inference example in this repository. The station validation datasets and the
+complete training/evaluation pipeline are not included in this code release.
 
 ## Repository Layout
 
@@ -97,7 +93,7 @@ Huayu-Global/
 
 ## Requirements
 
-The manuscript implementation was developed with Python 3.12, PyTorch, and
+The reference implementation was developed with Python 3.12, PyTorch, and
 Linux. A CUDA-capable GPU is strongly recommended because all three
 241.78-million-parameter sector models are loaded for inference.
 
@@ -112,10 +108,9 @@ Direct dependencies used by `HuayuGlobal.py` include:
 - The companion `jacksung` package, which supplies model, satellite-reader,
   geospatial, timing, and task-execution utilities
 
-This repository does not currently include a lock file, package manifest, or
-the source of the `jacksung` dependency. Install a compatible companion package
-before running the example. Install PyTorch using the command appropriate for
-your CUDA runtime from the
+The companion `jacksung` package is installed separately and is not part of
+this repository. Install a compatible version before running the example.
+Install PyTorch using the command appropriate for your CUDA runtime from the
 [official PyTorch installation guide](https://pytorch.org/get-started/locally/).
 
 One minimal environment setup is:
@@ -129,26 +124,32 @@ python -m pip install numpy scipy rasterio pillow tqdm
 
 ## Data and Model Setup
 
+### Download
+
+The trained model bundle and demonstration satellite observations are publicly
+available from the
+[Huayu-Global Google Drive folder](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing).
+
+Download `assests.zip` and `data.zip` into the repository root, then follow the
+extraction instructions below. The archive name `assests.zip` intentionally
+matches the directory spelling used by the code.
+
 ### Required External Files
 
 The following components must be obtained separately:
 
 | Component | Required | Typical distribution | Approximate size | Final location |
 | --- | --- | --- | ---: | --- |
-| Trained models and support files | Yes | `assests.zip` | 7.85 GiB compressed / 8.69 GiB extracted | `./assests/` |
-| Demonstration observations for `2025-01-02 00:00 UTC` | Only for the bundled example | `data.zip` | 1.76 GiB compressed / 2.31 GiB extracted | `./data/` |
+| Trained models and support files | Yes | [`assests.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 7.85 GiB compressed / 8.69 GiB extracted | `./assests/` |
+| Demonstration observations for `2025-01-02 00:00 UTC` | Only for the bundled example | [`data.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 1.76 GiB compressed / 2.31 GiB extracted | `./data/` |
 | Observations for another timestamp | Yes for custom runs | Downloaded from the satellite data providers | Depends on period | `./data/` |
-| Companion `jacksung` Python package | Yes | Supplied or published separately by the project maintainers | Environment-dependent | Active Python environment |
+| Companion `jacksung` Python package | Yes | Separate Python dependency | Environment-dependent | Active Python environment |
 
 The `cache/` and `results/` directories do not require downloads. They are
 populated locally when preprocessing and inference run.
 
-The repository does not currently contain a public model-download URL or the
-source of the `jacksung` package. Release maintainers must distribute these
-components separately, for example as release assets or through a persistent
-research-data repository. Do not substitute arbitrary model files: the
-checkpoint, normalization array, and sensor configuration must belong to the
-same trained model.
+The checkpoint, normalization array, and sensor configuration in each model
+directory form a matched set and must be kept together.
 
 ### Model Directory
 
@@ -279,11 +280,10 @@ timestamp in `HuayuGlobal.py`. After extraction, it should contain:
 | `data/metsat/0/2025/1/2/` | 2 Meteosat prime-service `.nat` files |
 | `data/metsat/IODC/2025/1/2/` | 2 Meteosat IODC `.nat` files |
 
-### Extracting Distributed Archives
+### Extracting Downloaded Archives
 
-If `assests.zip` and `data.zip` were supplied with a release, place both
-archives in the repository root and extract their **contents** into the
-existing directories:
+Place the downloaded `assests.zip` and `data.zip` archives in the repository
+root and extract their **contents** into the existing directories:
 
 ```powershell
 Expand-Archive .\assests.zip -DestinationPath .\assests -Force
@@ -438,25 +438,6 @@ satellite domains. It is not a complete global precipitation solution:
 
 Users should independently validate the output for their region and
 application before using it in operational or safety-critical workflows.
-
-## Citation
-
-If this code contributes to a publication, cite the associated manuscript:
-
-```bibtex
-@article{song2026huayuglobal,
-  title   = {Huayu-Global narrows the latency--accuracy gap in quasi-global
-             precipitation monitoring},
-  author  = {Song, Zijiang and Yang, Shuang and Li, Yuying and Zhu, Zilong and
-             Sun, Xigang and Liu, Ting and Xiao, Wenye and Yuan, Lina and
-             Liu, Min},
-  year    = {2026},
-  note    = {Manuscript}
-}
-```
-
-Update this entry with the journal, DOI, and publication details when they
-become available.
 
 ## Data Sources
 
