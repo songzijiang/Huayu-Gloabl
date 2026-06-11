@@ -18,9 +18,9 @@ from rasterio.errors import NotGeoreferencedWarning
 import warnings
 from PIL import Image
 
-# 过滤所有 RuntimeWarning
+# Suppress RuntimeWarning messages.
 warnings.filterwarnings("ignore", category=RuntimeWarning)
-# 过滤 rasterio 的无地理参考警告
+# Suppress rasterio warnings for arrays without embedded georeferencing.
 warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -46,12 +46,12 @@ class Huayu_Global:
         if os.path.exists(self.count_2022_path):
             self.standard_count_22 = np.array(Image.open(self.count_2022_path))
         else:
-            print('2022标准count文件不存在，2022计算所有数据！')
+            print('The standard 2022 count file was not found.')
             self.standard_count_22 = None
         if os.path.exists(self.count_2025_path):
             self.standard_count_25 = np.array(Image.open(self.count_2025_path))
         else:
-            print('2025标准count文件不存在，2025计算所有数据！')
+            print('The standard 2025 count file was not found.')
             self.standard_count_25 = None
         self.standard_count = None
         self.agri_net = Huayu(norm_path=self.agri_model_dir, model_path=rf'{self.agri_model_dir}/model.pt',
@@ -60,9 +60,9 @@ class Huayu_Global:
                              config=rf'{self.abi_model_dir}/config.yml', root_path=self.root_path)
         self.seviri_net = Huayu(norm_path=self.seviri_model_dir, model_path=rf'{self.seviri_model_dir}/model.pt',
                                 config=rf'{self.seviri_model_dir}/config.yml', root_path=self.root_path)
-        print(f"模型加载完成，耗时：{st.reset()} 秒")
+        print(f"Models loaded in {st.reset()} seconds.")
 
-    # ignore_cache_exist: 覆盖现有缓存，否则采用增量覆盖原则
+    # ignore_cache_exist: overwrite the existing cache; otherwise update it incrementally.
     def predict(self, current_date, ignore_cache_exist=False, exclude_idxs=[]):
         if current_date < datetime(2024, 1, 31):
             self.standard_count = self.standard_count_22
@@ -129,8 +129,8 @@ class Huayu_Global:
             os.makedirs(self.cache_path, exist_ok=True)
             with open(os.path.join(self.cache_path, cache_name), "wb") as f:
                 pickle.dump((lefts, nps), f)
-            print(f"缓存数据至{os.path.join(self.cache_path, cache_name)}", end='\t')
-        print(f"数据加载完成，耗时：{st.reset()} 秒")
+            print(f"Cached data at {os.path.join(self.cache_path, cache_name)}", end='\t')
+        print(f"Data loading completed in {st.reset()} seconds.")
         Huayu_out = np.zeros((2400, 7200))
         count = np.zeros((2400, 7200))
         total_task = 3 * 3 * len(nps)
@@ -138,9 +138,9 @@ class Huayu_Global:
         for i in range(0, 2400, 800):
             for j in range(0, 2400, 800):
                 batch_add = {}
-                # 进入模型前的最后处理，包括异常值处理和缺失值处理
+                # Apply final invalid-value and missing-value handling before inference.
                 for k, each in nps.items():
-                    # 手动剔除指定日期的key，（华雨的半小时分辨率）
+                    # Exclude selected scan keys manually for Huayu's 30-minute output interval.
                     if k in exclude_idxs:
                         hy_each = None
                     else:
@@ -148,31 +148,34 @@ class Huayu_Global:
                             hy_each = self.agri_net.predict(np_data=each[2:, i: i + 800, j: j + 800])
                         elif 'goes' in k:
                             each_patch = each[:, i: i + 800, j: j + 800]
-                            # 如果GOES卫星有异常值，则这一片影像直接剔除
+                            # Reject a GOES patch when it contains invalid values.
                             if np.max(each_patch) >= 4095:
-                                print(rf"{k}GOES数据存在异常值{np.max(each_patch)}，无法进行后续计算")
+                                print(rf"{k} GOES data contain an invalid value ({np.max(each_patch)}); "
+                                      rf"the patch cannot be processed.")
                                 hy_each = None
                             else:
                                 each_patch = fill_nan_with_window_mean_fast(each_patch, window_size=(3, 3))
                                 hy_each = self.abi_net.predict(np_data=each_patch)
                         elif 'ms' in k:
                             each_patch = each[:, i: i + 800, j: j + 800]
-                            # 如果有nan，则尝试均值处理单片patch
+                            # Fill NaN values in an individual patch with a local window mean.
                             nan_percent = round(
                                 np.isnan(each_patch).sum() / (
                                         each_patch.shape[0] * each_patch.shape[1] * each_patch.shape[2]) * 100, 2)
                             if nan_percent > 2:
-                                print(rf"{k}数据缺失过多，无法进行后续计算:" + rf'nan_percent:{nan_percent}%')
+                                print(rf"{k} contains too much missing data and cannot be processed: "
+                                      rf"nan_percent={nan_percent}%")
                                 hy_each = None
                             else:
                                 each_patch = fill_nan_with_window_mean_fast(each_patch, window_size=(9, 9))
                                 if np.isnan(each_patch).sum() > 0:
-                                    print(rf"{k}数据存在无法填充的缺失值，无法进行后续计算")
+                                    print(rf"{k} contains missing values that could not be filled; "
+                                          rf"the patch cannot be processed.")
                                     hy_each = None
                                 else:
                                     hy_each = self.seviri_net.predict(np_data=each_patch)
                         else:
-                            raise Exception(f"未知数据来源{k}，无法进行后续计算")
+                            raise Exception(f"Unknown data source {k}; the input cannot be processed.")
                     batch_add[k] = hy_each
                     pbar.update(1)
                 for k, hy in batch_add.items():
@@ -189,12 +192,12 @@ class Huayu_Global:
                             Huayu_out[i:i + 800, jdx[0]:jdx[1]] += hy[0, :, hys[hy_dx][0]:hys[hy_dx][1]]
                             count[i:i + 800, jdx[0]:jdx[1]] += 1
         pbar.close()
-        print(f"数据推演，耗时：{st.reset()} 秒")
+        print(f"Inference completed in {st.reset()} seconds.")
         Huayu_out[count > 0] = Huayu_out[count > 0] / count[count > 0]
         Huayu_out = uniform_filter(Huayu_out, size=5, mode='nearest')
         # Huayu[count > 1] = Huayu_smooth[count > 1]
         Huayu_out[Huayu_out < 0.1] = 0
-        print(f"总耗时：{st_all.reset()} 秒")
+        print(f"Total runtime: {st_all.reset()} seconds.")
         return Huayu_out, count
 
 
@@ -213,9 +216,10 @@ if __name__ == '__main__':
                coord=Coordinate(left=-180, top=60, x_res=0.05, y_res=0.05, right=180, bottom=-60),
                dtype=np.float32, print_log=False)
     if count is None or Huayu_out is None:
-        raise Exception("无数据生成，请检查数据")
+        raise Exception("No output was generated. Check the input data.")
     if huayu.standard_count is None or np.sum(count[huayu.standard_count > 0] == 0) > 0:
-        raise Exception("部分区域无数据覆盖，无法保存tif文件，具体覆盖情况查看count文件")
+        raise Exception("Some regions have no data coverage. The GeoTIFF cannot be saved; "
+                        "inspect the count file for coverage details.")
     if Huayu_out is not None:
         np2tif(Huayu_out, save_path=root_path, out_name=rf'Huayu_{current_date.strftime("%Y%m%d_%H%M")}',
                coord=Coordinate(left=-180, top=60, x_res=0.05, y_res=0.05, right=180, bottom=-60),
