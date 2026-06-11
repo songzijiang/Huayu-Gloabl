@@ -1,0 +1,222 @@
+import os.path
+import random
+import traceback
+
+from jacksung.ai.GeoAttX import Huayu
+from jacksung.utils.data_convert import np2tif, Coordinate, fill_nan_with_window_mean_fast
+from jacksung.ai.utils.fy import get_agri_file_path, getNPfromHDF
+from jacksung.ai.utils.goes import get_filename_by_date_from_dir, getNPfromDir
+from jacksung.ai.utils.metsat import get_seviri_file_path, getNPfromNAT
+from datetime import datetime, timedelta
+from jacksung.utils.multi_task import MultiTasks, ThreadingLock
+from tqdm import tqdm
+import numpy as np
+from jacksung.utils.time import Stopwatch
+from scipy.ndimage import uniform_filter
+import pickle
+from rasterio.errors import NotGeoreferencedWarning
+import warnings
+from PIL import Image
+
+# 过滤所有 RuntimeWarning
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+# 过滤 rasterio 的无地理参考警告
+warnings.filterwarnings("ignore", category=NotGeoreferencedWarning)
+warnings.filterwarnings("ignore", category=UserWarning)
+
+
+class Huayu_Global:
+    def __init__(self, root_path='./results', model_dir=None, fy4b_file_dir=None, goesW_file_dir=None,
+                 goesE_file_dir=None, msg0_file_dir=None, msgIODC_file_dir=None, cache_path=None,
+                 count_2022_path=None, count_2025_path=None):
+        st = Stopwatch()
+        self.model_dir = model_dir
+        self.cache_path = cache_path
+        self.agri_model_dir = os.path.join(self.model_dir, 'AGRI')
+        self.abi_model_dir = os.path.join(self.model_dir, 'ABI')
+        self.seviri_model_dir = os.path.join(self.model_dir, 'SEVIRI')
+        self.fy4b_file_dir = fy4b_file_dir
+        self.goesW_file_dir = goesW_file_dir
+        self.goesE_file_dir = goesE_file_dir
+        self.msg0_file_dir = msg0_file_dir
+        self.msgIODC_file_dir = msgIODC_file_dir
+        self.root_path = root_path
+        self.count_2022_path = count_2022_path
+        self.count_2025_path = count_2025_path
+        if os.path.exists(self.count_2022_path):
+            self.standard_count_22 = np.array(Image.open(self.count_2022_path))
+        else:
+            print('2022标准count文件不存在，2022计算所有数据！')
+            self.standard_count_22 = None
+        if os.path.exists(self.count_2025_path):
+            self.standard_count_25 = np.array(Image.open(self.count_2025_path))
+        else:
+            print('2025标准count文件不存在，2025计算所有数据！')
+            self.standard_count_25 = None
+        self.standard_count = None
+        self.agri_net = Huayu(norm_path=self.agri_model_dir, model_path=rf'{self.agri_model_dir}/model.pt',
+                              config=rf'{self.agri_model_dir}/config.yml', root_path=self.root_path)
+        self.abi_net = Huayu(norm_path=self.abi_model_dir, model_path=rf'{self.abi_model_dir}/model.pt',
+                             config=rf'{self.abi_model_dir}/config.yml', root_path=self.root_path)
+        self.seviri_net = Huayu(norm_path=self.seviri_model_dir, model_path=rf'{self.seviri_model_dir}/model.pt',
+                                config=rf'{self.seviri_model_dir}/config.yml', root_path=self.root_path)
+        print(f"模型加载完成，耗时：{st.reset()} 秒")
+
+    # ignore_cache_exist: 覆盖现有缓存，否则采用增量覆盖原则
+    def predict(self, current_date, ignore_cache_exist=False, exclude_idxs=[]):
+        if current_date < datetime(2024, 1, 31):
+            self.standard_count = self.standard_count_22
+        else:
+            self.standard_count = self.standard_count_25
+        st = Stopwatch()
+        st_all = Stopwatch()
+        goesW_dir = self.goesW_file_dir
+        goesE_dir = self.goesE_file_dir
+        cache_name = current_date.strftime('cache_%Y%m%d_%H%M.pkl')
+        if (self.cache_path is not None and os.path.exists(
+                os.path.join(self.cache_path, cache_name))) or ignore_cache_exist:
+            with open(os.path.join(self.cache_path, cache_name), "rb") as f:
+                lefts, nps = pickle.load(f)
+        else:
+            nps = dict()
+            lefts = dict()
+        fy_lock = ThreadingLock()
+        goes_lock = ThreadingLock()
+        metsat_lock = ThreadingLock()
+        # lock = None
+        mt = MultiTasks(3, desc="Data Loading")
+        for delta_time in range(0, 30, 15):
+            select_date = current_date + timedelta(minutes=delta_time)
+            fy_path = get_agri_file_path(self.fy4b_file_dir, select_date)
+            metsat_path = get_seviri_file_path(self.msg0_file_dir, select_date)
+            metsat_IODC_path = get_seviri_file_path(self.msgIODC_file_dir, select_date)
+            fy_key = rf'fy+{delta_time}'
+            if fy_path is not None and fy_key not in nps:
+                print(rf'add {fy_key} in data reading')
+                mt.add_task(rf'fy+{delta_time}', getNPfromHDF, [fy_path, 'FDI', fy_lock, None, True, False])
+            ms_key = rf'ms+{delta_time}'
+            if metsat_path is not None and ms_key not in nps:
+                print(rf'add {ms_key} in data reading')
+                mt.add_task(ms_key, getNPfromNAT, [metsat_path, False, metsat_lock, True, False])
+            ms_IODC_key = rf'ms_IODC+{delta_time}'
+            if metsat_IODC_path is not None and ms_IODC_key not in nps:
+                print(rf'add {ms_IODC_key} in data reading')
+                mt.add_task(ms_IODC_key, getNPfromNAT, [metsat_IODC_path, False, metsat_lock, True, False])
+        for delta_time in range(0, 30, 10):
+            select_date = current_date + timedelta(minutes=delta_time)
+            goesE_key = rf'goesE+{delta_time}'
+            if goesE_key not in nps:
+                print(rf'add {goesE_key} in data reading')
+                mt.add_task(goesE_key, getNPfromDir,
+                            [goesE_dir, select_date, 'G19' if select_date >= datetime(2025, 4, 2) else 'G16', goes_lock,
+                             True, None, None])
+            goesW_key = rf'goesW+{delta_time}'
+            if goesW_key not in nps:
+                print(rf'add {goesW_key} in data reading')
+                mt.add_task(goesW_key, getNPfromDir,
+                            [goesW_dir, select_date, 'G18', goes_lock, True, None, None])
+        results = mt.execute_task()
+        select_dict = dict()
+        for key, result in results.items():
+            if type(result) == tuple and result[0] is not None:
+                select_dict[key] = results[key]
+        results = select_dict
+        for k, result in results.items():
+            np_data = result[0]
+            nps[k] = np_data
+            lefts[k] = result[1].left
+        if self.cache_path is not None and len(results) > 0:
+            os.makedirs(self.cache_path, exist_ok=True)
+            with open(os.path.join(self.cache_path, cache_name), "wb") as f:
+                pickle.dump((lefts, nps), f)
+            print(f"缓存数据至{os.path.join(self.cache_path, cache_name)}", end='\t')
+        print(f"数据加载完成，耗时：{st.reset()} 秒")
+        Huayu_out = np.zeros((2400, 7200))
+        count = np.zeros((2400, 7200))
+        total_task = 3 * 3 * len(nps)
+        pbar = tqdm(total=total_task, desc="Processing")
+        for i in range(0, 2400, 800):
+            for j in range(0, 2400, 800):
+                batch_add = {}
+                # 进入模型前的最后处理，包括异常值处理和缺失值处理
+                for k, each in nps.items():
+                    # 手动剔除指定日期的key，（华雨的半小时分辨率）
+                    if k in exclude_idxs:
+                        hy_each = None
+                    else:
+                        if 'fy' in k:
+                            hy_each = self.agri_net.predict(np_data=each[2:, i: i + 800, j: j + 800])
+                        elif 'goes' in k:
+                            each_patch = each[:, i: i + 800, j: j + 800]
+                            # 如果GOES卫星有异常值，则这一片影像直接剔除
+                            if np.max(each_patch) >= 4095:
+                                print(rf"{k}GOES数据存在异常值{np.max(each_patch)}，无法进行后续计算")
+                                hy_each = None
+                            else:
+                                each_patch = fill_nan_with_window_mean_fast(each_patch, window_size=(3, 3))
+                                hy_each = self.abi_net.predict(np_data=each_patch)
+                        elif 'ms' in k:
+                            each_patch = each[:, i: i + 800, j: j + 800]
+                            # 如果有nan，则尝试均值处理单片patch
+                            nan_percent = round(
+                                np.isnan(each_patch).sum() / (
+                                        each_patch.shape[0] * each_patch.shape[1] * each_patch.shape[2]) * 100, 2)
+                            if nan_percent > 2:
+                                print(rf"{k}数据缺失过多，无法进行后续计算:" + rf'nan_percent:{nan_percent}%')
+                                hy_each = None
+                            else:
+                                each_patch = fill_nan_with_window_mean_fast(each_patch, window_size=(9, 9))
+                                if np.isnan(each_patch).sum() > 0:
+                                    print(rf"{k}数据存在无法填充的缺失值，无法进行后续计算")
+                                    hy_each = None
+                                else:
+                                    hy_each = self.seviri_net.predict(np_data=each_patch)
+                        else:
+                            raise Exception(f"未知数据来源{k}，无法进行后续计算")
+                    batch_add[k] = hy_each
+                    pbar.update(1)
+                for k, hy in batch_add.items():
+                    if hy is not None:
+                        jds = [[int((lefts[k] + 180) / 0.05) + j, int((lefts[k] + 180) / 0.05) + j + 800]]
+                        hys = [[0, 800]]
+                        if jds[0][0] < 0:
+                            jds = [[jds[0][0] + 7200, 7200], [0, jds[0][1]]]
+                            hys = [[0, jds[0][1] - jds[0][0]], [jds[0][1] - jds[0][0], 800]]
+                        elif jds[0][1] > 7200:
+                            jds = [[jds[0][0], 7200], [0, jds[0][1] - 7200]]
+                            hys = [[0, jds[0][1] - jds[0][0]], [jds[0][1] - jds[0][0], 800]]
+                        for hy_dx, jdx in enumerate(jds):
+                            Huayu_out[i:i + 800, jdx[0]:jdx[1]] += hy[0, :, hys[hy_dx][0]:hys[hy_dx][1]]
+                            count[i:i + 800, jdx[0]:jdx[1]] += 1
+        pbar.close()
+        print(f"数据推演，耗时：{st.reset()} 秒")
+        Huayu_out[count > 0] = Huayu_out[count > 0] / count[count > 0]
+        Huayu_out = uniform_filter(Huayu_out, size=5, mode='nearest')
+        # Huayu[count > 1] = Huayu_smooth[count > 1]
+        Huayu_out[Huayu_out < 0.1] = 0
+        print(f"总耗时：{st_all.reset()} 秒")
+        return Huayu_out, count
+
+
+if __name__ == '__main__':
+    current_date = datetime(year=2025, month=1, day=2, hour=0, minute=0)
+    root_path = rf'./results/{current_date.strftime("%Y-%m-%d-%H%M")}-{random.randint(1000, 9999)}'
+    huayu = Huayu_Global(model_dir=rf'./assests', root_path=root_path,
+                         fy4b_file_dir=rf'./data/fy/4b', cache_path=rf'./cache',
+                         goesE_file_dir=rf'./data/goes/' + ('16' if current_date < datetime(2025, 4, 2) else '19'),
+                         goesW_file_dir=rf'./data/goes/18', msg0_file_dir=rf'./data/metsat/0',
+                         msgIODC_file_dir=rf'./data/metsat/IODC', count_2022_path=rf'./assests/count_2022.tif',
+                         count_2025_path=rf'./assests/count_2025.tif')
+    Huayu_out, count = huayu.predict(current_date)
+    if count is not None:
+        np2tif(count, save_path=root_path, out_name=rf'count_{current_date.strftime("%Y%m%d_%H%M")}',
+               coord=Coordinate(left=-180, top=60, x_res=0.05, y_res=0.05, right=180, bottom=-60),
+               dtype=np.float32, print_log=False)
+    if count is None or Huayu_out is None:
+        raise Exception("无数据生成，请检查数据")
+    if huayu.standard_count is None or np.sum(count[huayu.standard_count > 0] == 0) > 0:
+        raise Exception("部分区域无数据覆盖，无法保存tif文件，具体覆盖情况查看count文件")
+    if Huayu_out is not None:
+        np2tif(Huayu_out, save_path=root_path, out_name=rf'Huayu_{current_date.strftime("%Y%m%d_%H%M")}',
+               coord=Coordinate(left=-180, top=60, x_res=0.05, y_res=0.05, right=180, bottom=-60),
+               dtype=np.float32, print_log=False)
