@@ -204,12 +204,12 @@ class Huayu_Global:
 if __name__ == '__main__':
     current_date = datetime(year=2025, month=1, day=2, hour=0, minute=0)
     root_path = rf'./results/{current_date.strftime("%Y-%m-%d-%H%M")}-{random.randint(1000, 9999)}'
-    huayu = Huayu_Global(model_dir=rf'./assests', root_path=root_path,
+    huayu = Huayu_Global(model_dir=rf'./assets', root_path=root_path,
                          fy4b_file_dir=rf'./data/fy/4b', cache_path=rf'./cache',
                          goesE_file_dir=rf'./data/goes/' + ('16' if current_date < datetime(2025, 4, 2) else '19'),
                          goesW_file_dir=rf'./data/goes/18', msg0_file_dir=rf'./data/metsat/0',
-                         msgIODC_file_dir=rf'./data/metsat/IODC', count_2022_path=rf'./assests/count_2022.tif',
-                         count_2025_path=rf'./assests/count_2025.tif')
+                         msgIODC_file_dir=rf'./data/metsat/IODC', count_2022_path=rf'./assets/count_2022.tif',
+                         count_2025_path=rf'./assets/count_2025.tif')
     Huayu_out, count = huayu.predict(current_date)
     if count is not None:
         np2tif(count, save_path=root_path, out_name=rf'count_{current_date.strftime("%Y%m%d_%H%M")}',

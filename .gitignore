@@ -37,9 +37,9 @@ proc
 /paper_writting/draw_figure/results/month_metrics.pdf
 /paper_writting/draw_figure/results/precipitation_metrics.pdf
 /paper_writting/draw_figure/results/combined_metrics.pdf
-/assests/ABI/
-/assests/AGRI/
-/assests/SEVIRI/
+/assets/ABI/
+/assets/AGRI/
+/assets/SEVIRI/
 /data/fy/
 /data/goes/
 /data/metsat/

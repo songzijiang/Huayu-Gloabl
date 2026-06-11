@@ -63,7 +63,7 @@ complete training/evaluation pipeline are not included in this code release.
 ```text
 Huayu-Global/
 ├── HuayuGlobal.py          # Inference, sector mosaicking, and GeoTIFF export
-├── assests/                # Model weights, normalization data, and masks
+├── assets/                # Model weights, normalization data, and masks
 │   ├── ABI/
 │   │   ├── config.yml
 │   │   ├── mean_std.npy
@@ -80,10 +80,6 @@ Huayu-Global/
 └── results/                # Generated GeoTIFF products
 ```
 
-> [!IMPORTANT]
-> The directory name `assests` is intentionally preserved because it is the
-> path used by the current code. Renaming it to `assets` requires updating the
-> corresponding paths in `HuayuGlobal.py`.
 
 > [!WARNING]
 > A Git clone contains source code and placeholder files only. Model weights,
@@ -126,27 +122,35 @@ python -m pip install numpy scipy rasterio pillow tqdm
 
 ### Download
 
-The trained model bundle and demonstration satellite observations are publicly
-available from the
+The trained model bundle, demonstration satellite observations, and
+preprocessed demonstration cache are publicly available from the
 [Huayu-Global Google Drive folder](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing).
 
-Download `assests.zip` and `data.zip` into the repository root, then follow the
-extraction instructions below. The archive name `assests.zip` intentionally
-matches the directory spelling used by the code.
+`assets.zip` is always required. For the bundled `2025-01-02 00:00 UTC`
+example, choose exactly one input option:
+
+1. **Preprocessed cache:** download `cache_20250102_0000.pkl`. This is the
+   shortest path to inference and does not require `data.zip`.
+2. **Raw observations:** download `data.zip`. The pipeline reads and
+   preprocesses the original FY-4B, GOES, and Meteosat files, then creates the
+   same cache locally.
 
 ### Required External Files
 
-The following components must be obtained separately:
+The model bundle is required, followed by either the cache or the raw
+observation bundle:
 
-| Component | Required | Typical distribution | Approximate size | Final location |
+| Component | Required | Download | Approximate size | Final location |
 | --- | --- | --- | ---: | --- |
-| Trained models and support files | Yes | [`assests.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 7.85 GiB compressed / 8.69 GiB extracted | `./assests/` |
-| Demonstration observations for `2025-01-02 00:00 UTC` | Only for the bundled example | [`data.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 1.76 GiB compressed / 2.31 GiB extracted | `./data/` |
+| Trained models and support files | Yes | [`assets.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 7.85 GiB compressed / 8.69 GiB extracted | `./assets/` |
+| Preprocessed demonstration cache | Option A | [`cache_20250102_0000.pkl`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | Approximately 3.11 GiB | `./cache/cache_20250102_0000.pkl` |
+| Raw demonstration observations | Option B | [`data.zip`](https://drive.google.com/drive/folders/1NwqR6k46gymsIS95bsrkzvV4oWkiMHc5?usp=sharing) | 1.76 GiB compressed / 2.31 GiB extracted | `./data/` |
 | Observations for another timestamp | Yes for custom runs | Downloaded from the satellite data providers | Depends on period | `./data/` |
 | Companion `jacksung` Python package | Yes | Separate Python dependency | Environment-dependent | Active Python environment |
 
-The `cache/` and `results/` directories do not require downloads. They are
-populated locally when preprocessing and inference run.
+The `results/` directory is populated locally during inference. The `cache/`
+directory either contains the downloaded PKL file or is populated
+automatically while raw observations are preprocessed.
 
 The checkpoint, normalization array, and sensor configuration in each model
 directory form a matched set and must be kept together.
@@ -157,7 +161,7 @@ After downloading and extracting the model bundle, the following files must
 exist exactly at these paths:
 
 ```text
-assests/
+assets/
 ├── ABI/
 │   ├── config.yml
 │   ├── mean_std.npy
@@ -189,6 +193,9 @@ three networks at startup and does not currently support a single-sector
 configuration.
 
 ### Satellite Input Directory
+
+This section applies to the raw-observation option. It can be skipped when a
+complete cache matching the inference timestamp is installed.
 
 Satellite files are organized by platform and UTC acquisition date:
 
@@ -268,8 +275,8 @@ under the local `data/goes/<satellite>/YYYY/M/D/` hierarchy.
 
 ### Demonstration Data Manifest
 
-The optional `data.zip` archive reproduces the input expected by the default
-timestamp in `HuayuGlobal.py`. After extraction, it should contain:
+For the raw-observation option, `data.zip` reproduces the input expected by the
+default timestamp in `HuayuGlobal.py`. After extraction, it should contain:
 
 | Directory | Expected observation files |
 | --- | ---: |
@@ -282,24 +289,47 @@ timestamp in `HuayuGlobal.py`. After extraction, it should contain:
 
 ### Extracting Downloaded Archives
 
-Place the downloaded `assests.zip` and `data.zip` archives in the repository
-root and extract their **contents** into the existing directories:
+Place `assets.zip` in the repository root and extract its **contents** into
+`assets/`:
 
 ```powershell
-Expand-Archive .\assests.zip -DestinationPath .\assests -Force
+Expand-Archive .\assets.zip -DestinationPath .\assets -Force
+```
+
+```bash
+unzip -o assets.zip -d assets
+```
+
+For **Option A**, place the downloaded cache at:
+
+```text
+cache/cache_20250102_0000.pkl
+```
+
+PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Path .\cache -Force | Out-Null
+Move-Item .\cache_20250102_0000.pkl .\cache\cache_20250102_0000.pkl
+```
+
+```bash
+mkdir -p cache
+mv cache_20250102_0000.pkl cache/cache_20250102_0000.pkl
+```
+
+For **Option B**, extract the raw observations:
+
+```powershell
 Expand-Archive .\data.zip -DestinationPath .\data -Force
 ```
 
-Equivalent Linux commands are:
-
 ```bash
-unzip -o assests.zip -d assests
 unzip -o data.zip -d data
 ```
 
-Do not create `assests/assests/` or `data/data/`. The expected checkpoint path,
-for example, is `assests/ABI/model.pt`, not
-`assests/assests/ABI/model.pt`.
+Do not create `assets/assets/` or `data/data/`. The expected checkpoint path,
+for example, is `assets/ABI/model.pt`, not `assets/assets/ABI/model.pt`.
 
 The archives may be deleted after successful extraction if disk space is
 limited. Keep a verified copy elsewhere if reinstallation is expected.
@@ -307,21 +337,21 @@ limited. Keep a verified copy elsewhere if reinstallation is expected.
 ### Preflight Check
 
 On PowerShell, verify the required model files and the bundled demonstration
-data before starting inference:
+input before starting inference:
 
 ```powershell
 $requiredModels = @(
-  ".\assests\ABI\config.yml",
-  ".\assests\ABI\mean_std.npy",
-  ".\assests\ABI\model.pt",
-  ".\assests\AGRI\config.yml",
-  ".\assests\AGRI\mean_std.npy",
-  ".\assests\AGRI\model.pt",
-  ".\assests\SEVIRI\config.yml",
-  ".\assests\SEVIRI\mean_std.npy",
-  ".\assests\SEVIRI\model.pt",
-  ".\assests\count_2022.tif",
-  ".\assests\count_2025.tif"
+  ".\assets\ABI\config.yml",
+  ".\assets\ABI\mean_std.npy",
+  ".\assets\ABI\model.pt",
+  ".\assets\AGRI\config.yml",
+  ".\assets\AGRI\mean_std.npy",
+  ".\assets\AGRI\model.pt",
+  ".\assets\SEVIRI\config.yml",
+  ".\assets\SEVIRI\mean_std.npy",
+  ".\assets\SEVIRI\model.pt",
+  ".\assets\count_2022.tif",
+  ".\assets\count_2025.tif"
 )
 
 $missing = $requiredModels | Where-Object { -not (Test-Path -LiteralPath $_) }
@@ -330,7 +360,17 @@ if ($missing) {
 } else {
   Write-Host "Model bundle is complete."
 }
+```
 
+For **Option A**, verify the cache:
+
+```powershell
+Get-Item .\cache\cache_20250102_0000.pkl
+```
+
+For **Option B**, verify the raw observation counts:
+
+```powershell
 Get-ChildItem .\data\fy\4b\2025\1\2\ -Filter *.HDF | Measure-Object
 Get-ChildItem .\data\goes\16\2025\1\2\ -Filter *.nc | Measure-Object
 Get-ChildItem .\data\goes\18\2025\1\2\ -Filter *.nc | Measure-Object
@@ -345,8 +385,8 @@ above.
 
 ## Quick Start
 
-After installing the dependencies and preparing the model/data directories,
-run the bundled example:
+After installing the dependencies, extracting `assets.zip`, and preparing
+either the PKL cache or raw observations, run the bundled example:
 
 ```bash
 python HuayuGlobal.py
@@ -383,20 +423,19 @@ from datetime import datetime
 
 from HuayuGlobal import Huayu_Global
 
-
 timestamp = datetime(2025, 1, 2, 0, 0)
 
 pipeline = Huayu_Global(
-    root_path="./results/example",
-    model_dir="./assests",
-    fy4b_file_dir="./data/fy/4b",
-    goesE_file_dir="./data/goes/16",
-    goesW_file_dir="./data/goes/18",
-    msg0_file_dir="./data/metsat/0",
-    msgIODC_file_dir="./data/metsat/IODC",
-    cache_path="./cache",
-    count_2022_path="./assests/count_2022.tif",
-    count_2025_path="./assests/count_2025.tif",
+  root_path="./results/example",
+  model_dir="./assets",
+  fy4b_file_dir="./data/fy/4b",
+  goesE_file_dir="./data/goes/16",
+  goesW_file_dir="./data/goes/18",
+  msg0_file_dir="./data/metsat/0",
+  msgIODC_file_dir="./data/metsat/IODC",
+  cache_path="./cache",
+  count_2022_path="./assets/count_2022.tif",
+  count_2025_path="./assets/count_2025.tif",
 )
 
 precipitation, count = pipeline.predict(timestamp)
@@ -413,8 +452,14 @@ not contribute to a mosaic.
 ## Caching and Operational Notes
 
 - Cache files are named `cache_YYYYMMDD_HHMM.pkl`.
+- A cache is valid only for the exact UTC timestamp encoded in its filename.
+- When a matching complete cache exists, it supplies the preprocessed tensors,
+  so `data.zip` is not required.
+- When no matching cache exists, the pipeline reads the raw observations and
+  writes a new cache under `cache_path`.
+- Keep `ignore_cache_exist=False` when using a downloaded cache.
 - Cache content is Python `pickle` data. Load only cache files created by a
-  trusted Huayu-Global run.
+  trusted Huayu-Global source. Pickle files can execute code while loading.
 - GOES patches with values greater than or equal to `4095` are rejected.
 - SEVIRI patches with more than `2%` missing values are rejected.
 - Remaining SEVIRI and GOES gaps are filled with local-window means before
