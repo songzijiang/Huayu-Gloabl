@@ -63,6 +63,9 @@ complete training/evaluation pipeline are not included in this code release.
 ```text
 Huayu-Global/
 ├── HuayuGlobal.py          # Inference, sector mosaicking, and GeoTIFF export
+├── requirements.txt        # Full pinned reference-environment snapshot
+├── setup_environment.ps1   # One-command Windows environment setup
+├── setup_environment.sh    # One-command Linux environment setup
 ├── assets/                # Model weights, normalization data, and masks
 │   ├── ABI/
 │   │   ├── config.yml
@@ -89,34 +92,41 @@ Huayu-Global/
 
 ## Requirements
 
-The reference implementation was developed with Python 3.12, PyTorch, and
-Linux. A CUDA-capable GPU is strongly recommended because all three
-241.78-million-parameter sector models are loaded for inference.
+The checked-in [`requirements.txt`](requirements.txt) is a full package
+snapshot of the reference environment, including direct and transitive
+dependencies. Windows-only packages are guarded with platform markers. The
+snapshot was captured on June 15, 2026 with:
 
-Direct dependencies used by `HuayuGlobal.py` include:
+- Python `3.11.9`
+- PyTorch `2.1.0+cu121`
+- CUDA runtime `12.1`
 
-- `numpy`
-- `scipy`
-- `rasterio`
-- `Pillow`
-- `tqdm`
-- PyTorch, through the Huayu model implementation
-- The companion `jacksung` package, which supplies model, satellite-reader,
-  geospatial, timing, and task-execution utilities
+A CUDA-capable GPU is strongly recommended because all three
+241.78-million-parameter sector models are loaded for inference. The NVIDIA
+driver must support CUDA 12.1. Compiled geospatial packages are installed
+through Conda on both Windows and Linux.
 
-The companion `jacksung` package is installed separately and is not part of
-this repository. Install a compatible version before running the example.
-Install PyTorch using the command appropriate for your CUDA runtime from the
-[official PyTorch installation guide](https://pytorch.org/get-started/locally/).
+### Environment Installation
 
-One minimal environment setup is:
+Install Miniconda or Anaconda, then run the command for your platform.
+
+Windows PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\setup_environment.ps1
+```
+
+Linux:
 
 ```bash
-conda create -n huayu-global python=3.12
-conda activate huayu-global
-python -m pip install numpy scipy rasterio pillow tqdm
-# Install a CUDA-compatible PyTorch build and the companion jacksung package.
+bash ./setup_environment.sh
 ```
+
+Both scripts create or update the `huayu-global` environment, install native
+geospatial libraries and the pinned packages, then check dependencies and core
+imports. They do not delete or recreate an existing environment. The full
+snapshot is large and includes PyTorch `2.1.0+cu121` plus
+`jacksung==0.0.4.85`.
 
 ## Data and Model Setup
 
