@@ -68,7 +68,6 @@ Invoke-Conda @(
     "-n", $EnvironmentName,
     "-c", "conda-forge",
     "gdal=3.6.2",
-    "rasterio=1.3.9",
     "cartopy=0.22.0",
     "pyproj=3.7.2",
     "shapely=2.0.5",
